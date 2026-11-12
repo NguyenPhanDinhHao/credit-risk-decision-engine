@@ -1,0 +1,90 @@
+# Main configuration. All paths are relative to the repository root unless absolute.
+# Environment overrides: CREDIT_RISK_DATA_DIR, CREDIT_RISK_ARTIFACTS_DIR, CREDIT_RISK_MLFLOW_URI.
+project:
+  name: credit-risk-decision-engine
+  seed: 42
+
+paths:
+  data_dir: data/raw
+  synthetic_dir: data/synthetic      # only used by the explicit --demo mode
+  artifacts_dir: artifacts
+  reports_dir: reports
+  figures_dir: reports/figures
+
+data:
+  id_column: SK_ID_CURR
+  target_column: TARGET
+  application_train: application_train.csv
+  application_test: application_test.csv
+  # Optional supplementary tables (Home Credit). The project runs without them.
+  optional_tables:
+    bureau: bureau.csv
+    bureau_balance: bureau_balance.csv
+    previous_application: previous_application.csv
+    pos_cash_balance: POS_CASH_balance.csv
+    credit_card_balance: credit_card_balance.csv
+    installments_payments: installments_payments.csv
+  use_supplementary_tables: false    # aggregates bureau.csv + previous_application.csv when present
+  sample_rows: null                  # int -> stratified subsample for quick runs
+
+split:
+  test_size: 0.20
+  val_size: 0.20                     # fraction of the full dataset (train = 0.60)
+
+features:
+  exclude_sensitive: true
+  # Fields treated as sensitive or as proxies for sensitive attributes. Excluded from the
+  # model by default; see docs/methodology.md ("Fairness and sensitive attributes").
+  sensitive_columns: [CODE_GENDER, DAYS_BIRTH, NAME_FAMILY_STATUS, DAYS_EMPLOYED_PERC]
+  high_cardinality_threshold: 15
+  days_employed_sentinel: 365243
+  winsorize_quantiles: [0.01, 0.99]
+
+training:
+  models: [logistic_regression, random_forest, lightgbm]
+  n_iter_tuning: 6
+  calibration_methods: [none, sigmoid, isotonic]
+  selection_auc_tolerance: 0.003     # prefer simpler model if validation AUC is within this margin
+  shap_sample_size: 2000
+  n_jobs: -1
+
+lightweight:                          # enabled with --lightweight
+  sample_rows: 40000
+  n_iter_tuning: 3
+  rf_n_estimators: 100
+  lgbm_n_estimators: 200
+  shap_sample_size: 500
+
+decision:
+  # ILLUSTRATIVE values only. They are not industry standards.
+  risk_bands: { low_max: 0.05, medium_max: 0.15 }
+  policies:
+    conservative:        { flag_threshold: 0.08 }
+    balanced:            { flag_threshold: 0.12 }
+    higher_acceptance:   { flag_threshold: 0.20 }
+  costs:                              # arbitrary relative units for illustration
+    false_negative: 5.0               # missed defaulter (loss given default)
+    false_positive: 1.0               # good applicant flagged (forgone margin)
+
+monitoring:
+  psi_moderate: 0.10
+  psi_high: 0.25
+  ks_pvalue: 0.01
+  reference_sample_size: 5000
+  retraining:
+    min_labeled_samples: 1000
+    max_auc_drop: 0.03
+    max_calibration_gap_rel: 0.25
+    drift_feature_fraction: 0.10
+    consecutive_windows_for_priority: 3
+
+mlflow:
+  enabled: true
+  tracking_uri: sqlite:///mlflow.db
+  experiment_name: credit-risk-decision-engine
+
+api:
+  model_path: artifacts/model_bundle.joblib
+  max_batch_size: 500
+  log_predictions: true
+  prediction_log: artifacts/monitoring/predictions.jsonl

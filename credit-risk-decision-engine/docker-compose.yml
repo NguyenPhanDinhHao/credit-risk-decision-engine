@@ -1,0 +1,64 @@
+# Three clearly separated roles:
+#   api      - inference service (needs a trained model in the shared ./artifacts volume)
+#   trainer  - one-off training job, run on demand (profile "train")
+#   mlflow   - experiment tracking UI (profile "tracking")
+#
+#   docker compose up --build                          # API only (degraded health until a model exists)
+#   docker compose --profile train run --rm trainer    # train on ./data/raw (real data)
+#   docker compose --profile tracking up -d mlflow     # MLflow UI on http://localhost:5000
+x-common: &common
+  build: .
+  image: credit-risk-decision-engine:latest
+  env_file:
+    - path: .env
+      required: false
+  volumes:
+    - ./artifacts:/app/artifacts
+    - ./reports:/app/reports
+    - mlflow_data:/mlflow
+
+services:
+  api:
+    <<: *common
+    command: uvicorn credit_risk.api.main:app --host 0.0.0.0 --port 8000
+    environment:
+      CREDIT_RISK_MODEL_PATH: /app/artifacts/model_bundle.joblib
+      CREDIT_RISK_PREDICTION_LOG: /app/artifacts/monitoring/predictions.jsonl
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  trainer:
+    <<: *common
+    profiles: ["train"]
+    # Add --demo to run on SYNTHETIC data when the real dataset is absent (not real results).
+    command: python scripts/train.py --lightweight
+    environment:
+      CREDIT_RISK_DATA_DIR: /app/data/raw
+      CREDIT_RISK_ARTIFACTS_DIR: /app/artifacts
+      CREDIT_RISK_MLFLOW_URI: http://mlflow:5000
+    volumes:
+      - ./data:/app/data:ro
+      - ./artifacts:/app/artifacts
+      - ./reports:/app/reports
+    depends_on:
+      mlflow:
+        condition: service_started
+        required: false
+
+  mlflow:
+    <<: *common
+    profiles: ["tracking"]
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --default-artifact-root mlflow-artifacts:/
+      --artifacts-destination /mlflow/artifacts
+    environment:
+      # Needed by recent MLflow versions so the trainer can reach the server by its service name; ignored by older ones.
+      MLFLOW_SERVER_ALLOWED_HOSTS: "*"
+    ports:
+      - "5000:5000"
+
+volumes:
+  mlflow_data:

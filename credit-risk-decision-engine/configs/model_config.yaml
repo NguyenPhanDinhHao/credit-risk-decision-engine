@@ -1,0 +1,23 @@
+# Candidate models and random-search spaces (sampled with sklearn ParameterSampler).
+# Tuning uses the validation split only; the test split is never used for model selection.
+logistic_regression:
+  fixed: { max_iter: 2000 }
+  space:
+    C: [0.01, 0.03, 0.1, 0.3, 1.0]
+    class_weight: [null, balanced]
+random_forest:
+  fixed: { n_estimators: 200 }
+  space:
+    max_depth: [8, 12, 16]
+    min_samples_leaf: [30, 60, 120]
+    max_features: [sqrt, 0.3]
+    class_weight: [null, balanced_subsample]
+lightgbm:
+  fixed: { n_estimators: 400, learning_rate: 0.05, subsample_freq: 1 }
+  space:
+    num_leaves: [15, 31, 63]
+    min_child_samples: [50, 100, 200]
+    colsample_bytree: [0.5, 0.8]
+    subsample: [0.7, 0.9]
+    reg_lambda: [0.0, 5.0, 20.0]
+    class_weight: [null, balanced]
